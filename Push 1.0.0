@@ -12,11 +12,11 @@ const char* password         = "18112547";
 const char* mqtt_server      = "10.242.107.116";
 const int   mqtt_port        = 1883;
 
-const char* topic_ota        = "esp32_arun/ota";      // รอรับ URL สำหรับอัปเดต
-const char* topic_ver        = "esp32_arun/version";  // แจ้งเวอร์ชันและสถานะกลับ
-const char* firmware_version = "v1.0.0";              // เวอร์ชันปัจจุบัน แก้เลขตรงนี้เพื่อเปลี่ยนเวอร์ชั่น
+const char* topic_ota        = "esp32_arun/ota";      
+const char* topic_ver        = "esp32_arun/version";  
+const char* firmware_version = "v1.0.0";              
 
-#define LED_PIN 2  // Built-in LED บน ESP32 (GPIO 2)
+#define LED_PIN 2  
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -30,8 +30,11 @@ void performOTA(String url) {
   Serial.println("[OTA] Downloading and updating firmware...");
 
   WiFiClientSecure secureClient;
-  secureClient.setInsecure(); // ข้ามการเช็ค SSL Certificate สำหรับ GitHub
+  secureClient.setInsecure(); 
   secureClient.setTimeout(120);
+
+  // รองรับ Redirect บน ESP32
+  httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 
   t_httpUpdate_return ret = httpUpdate.update(secureClient, url);
 
@@ -50,19 +53,24 @@ void performOTA(String url) {
       Serial.println("[OTA] Update Success! Restarting ESP32...");
       Serial.println("------------------------------------\n");
       delay(1000);
-      ESP.restart(); // รีสตาร์ทระบบเข้าเฟิร์มแวร์ใหม่
+      ESP.restart();
       break;
   }
 }
 
 // ==========================================
-// 3. Callback & Reconnect
+// 3. Callback & Reconnect Management
 // ==========================================
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   String message = "";
   for (unsigned int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
+  message.trim();
+
+  Serial.print("[MQTT] Message arrived on topic [");
+  Serial.print(topic);
+  Serial.println("]");
 
   if (String(topic) == topic_ota && message.length() > 0) {
     performOTA(message);
@@ -71,28 +79,26 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 void reconnectMQTT() {
   while (!mqttClient.connected()) {
-    // ระหว่างที่ MQTT หลุดการเชื่อมต่อ ให้ดับไฟ LED ไว้
     digitalWrite(LED_PIN, LOW);
 
     Serial.print("[MQTT] Connecting to " + String(mqtt_server) + "...");
-    String clientId = "ESP32_Arun_" + String(random(0xffff), HEX);
+    
+    // 💡 แก้ไข: ใช้ MAC Address ทำเป็น Client ID ป้องกัน ID ซ้ำกับ Session เก่าใน Docker
+    String clientId = "ESP32_Arun_" + WiFi.macAddress();
     
     if (mqttClient.connect(clientId.c_str())) {
       Serial.println(" Connected!");
       
-      // Subscribe รอรับคำสั่ง OTA
       mqttClient.subscribe(topic_ota);
       
-      // ส่งข้อความแจ้ง Node-RED/Telegram ว่าเชื่อมต่อสำเร็จพร้อมแสดงเวอร์ชัน
       String statusMsg = "ESP32 Connected | Firmware: " + String(firmware_version) + " | IP: " + WiFi.localIP().toString();
       mqttClient.publish(topic_ver, statusMsg.c_str());
 
-      // เปิดไฟ LED ติดค้างตลอด เพื่อแสดงว่าเชื่อมต่อสำเร็จและอัปเดตพร้อมใช้งานแล้ว
       digitalWrite(LED_PIN, HIGH);
-      Serial.println("[SYSTEM] LED status: ON (System Connected & Ready)");
+      Serial.println("[SYSTEM] LED status: ON (Connected & Ready)");
     } else {
       Serial.print(" Failed, rc=");
-      Serial.print(mqttClient.state());
+      Serial.print(mqttClient.state()); // ถ้าล้มเหลวจะบอกรหัส Error ออกมา เช่น -2 หรือ -4
       Serial.println(" Retry in 5 seconds...");
       delay(5000);
     }
@@ -105,14 +111,15 @@ void reconnectMQTT() {
 void setup() {
   Serial.begin(115200);
   
-  // ตั้งค่า Pin LED
   pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW); // เริ่มต้นปิดไฟไว้ก่อนจนกว่าจะต่อสำเร็จ
+  digitalWrite(LED_PIN, LOW);
 
-  // เชื่อมต่อ Wi-Fi
+  // 💡 กำหนดโหมด Wi-Fi Station ชัดเจน
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
   Serial.print("Connecting to WiFi: ");
   Serial.println(ssid);
-  WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -124,6 +131,9 @@ void setup() {
 
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setCallback(mqttCallback);
+  
+  // 💡 เพิ่มขนาด Buffer ให้กับ MQTT ป้องกันแพ็กเกจส่งไม่ผ่าน
+  mqttClient.setBufferSize(512);
 }
 
 void loop() {
