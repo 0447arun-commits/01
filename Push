@@ -14,7 +14,7 @@ const int   mqtt_port        = 1883;
 
 const char* topic_ota        = "esp32_arun/ota";      
 const char* topic_ver        = "esp32_arun/version";  
-const char* firmware_version = "v1.0.0";              
+const char* firmware_version = "v1.0.0";    เปลี่ยนเลขเวอร์ชั่นสำหรับอัปเดต          
 
 #define LED_PIN 2  
 
