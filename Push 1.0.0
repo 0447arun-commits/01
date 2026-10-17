@@ -14,7 +14,7 @@ const int   mqtt_port        = 1883;
 
 const char* topic_ota        = "esp32_arun/ota";      // รอรับ URL สำหรับอัปเดต
 const char* topic_ver        = "esp32_arun/version";  // แจ้งเวอร์ชันและสถานะกลับ
-const char* firmware_version = "v1.0.0";              // เวอร์ชันปัจจุบัน
+const char* firmware_version = "v1.0.0";              // เวอร์ชันปัจจุบัน แก้เลขตรงนี้เพื่อเปลี่ยนเวอร์ชั่น
 
 #define LED_PIN 2  // Built-in LED บน ESP32 (GPIO 2)
 
