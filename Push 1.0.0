@@ -1,0 +1,134 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <HTTPUpdate.h>
+#include <WiFiClientSecure.h>
+
+// ==========================================
+// 1. ตั้งค่า Wi-Fi & MQTT Broker
+// ==========================================
+const char* ssid             = "Nugget M";
+const char* password         = "18112547";
+
+const char* mqtt_server      = "10.242.107.116";
+const int   mqtt_port        = 1883;
+
+const char* topic_ota        = "esp32_arun/ota";      // รอรับ URL สำหรับอัปเดต
+const char* topic_ver        = "esp32_arun/version";  // แจ้งเวอร์ชันและสถานะกลับ
+const char* firmware_version = "v1.0.0";              // เวอร์ชันปัจจุบัน
+
+#define LED_PIN 2  // Built-in LED บน ESP32 (GPIO 2)
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+
+// ==========================================
+// 2. ฟังก์ชัน OTA (อัปเดตเฟิร์มแวร์)
+// ==========================================
+void performOTA(String url) {
+  Serial.println("\n------------------------------------");
+  Serial.println("[OTA] Received URL: " + url);
+  Serial.println("[OTA] Downloading and updating firmware...");
+
+  WiFiClientSecure secureClient;
+  secureClient.setInsecure(); // ข้ามการเช็ค SSL Certificate สำหรับ GitHub
+  secureClient.setTimeout(120);
+
+  t_httpUpdate_return ret = httpUpdate.update(secureClient, url);
+
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      Serial.printf("[OTA] Update Failed! Error (%d): %s\n", 
+                    httpUpdate.getLastError(), 
+                    httpUpdate.getLastErrorString().c_str());
+      break;
+
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("[OTA] No updates found on server.");
+      break;
+
+    case HTTP_UPDATE_OK:
+      Serial.println("[OTA] Update Success! Restarting ESP32...");
+      Serial.println("------------------------------------\n");
+      delay(1000);
+      ESP.restart(); // รีสตาร์ทระบบเข้าเฟิร์มแวร์ใหม่
+      break;
+  }
+}
+
+// ==========================================
+// 3. Callback & Reconnect
+// ==========================================
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String message = "";
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  if (String(topic) == topic_ota && message.length() > 0) {
+    performOTA(message);
+  }
+}
+
+void reconnectMQTT() {
+  while (!mqttClient.connected()) {
+    // ระหว่างที่ MQTT หลุดการเชื่อมต่อ ให้ดับไฟ LED ไว้
+    digitalWrite(LED_PIN, LOW);
+
+    Serial.print("[MQTT] Connecting to " + String(mqtt_server) + "...");
+    String clientId = "ESP32_Arun_" + String(random(0xffff), HEX);
+    
+    if (mqttClient.connect(clientId.c_str())) {
+      Serial.println(" Connected!");
+      
+      // Subscribe รอรับคำสั่ง OTA
+      mqttClient.subscribe(topic_ota);
+      
+      // ส่งข้อความแจ้ง Node-RED/Telegram ว่าเชื่อมต่อสำเร็จพร้อมแสดงเวอร์ชัน
+      String statusMsg = "ESP32 Connected | Firmware: " + String(firmware_version) + " | IP: " + WiFi.localIP().toString();
+      mqttClient.publish(topic_ver, statusMsg.c_str());
+
+      // เปิดไฟ LED ติดค้างตลอด เพื่อแสดงว่าเชื่อมต่อสำเร็จและอัปเดตพร้อมใช้งานแล้ว
+      digitalWrite(LED_PIN, HIGH);
+      Serial.println("[SYSTEM] LED status: ON (System Connected & Ready)");
+    } else {
+      Serial.print(" Failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" Retry in 5 seconds...");
+      delay(5000);
+    }
+  }
+}
+
+// ==========================================
+// 4. Setup & Loop
+// ==========================================
+void setup() {
+  Serial.begin(115200);
+  
+  // ตั้งค่า Pin LED
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW); // เริ่มต้นปิดไฟไว้ก่อนจนกว่าจะต่อสำเร็จ
+
+  // เชื่อมต่อ Wi-Fi
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  mqttClient.setServer(mqtt_server, mqtt_port);
+  mqttClient.setCallback(mqttCallback);
+}
+
+void loop() {
+  if (!mqttClient.connected()) {
+    reconnectMQTT();
+  }
+  mqttClient.loop();
+}
