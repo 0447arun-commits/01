@@ -1,0 +1,154 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <HTTPUpdate.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+
+// 1. ตั้งค่า WiFi
+const char* ssid        = "Nugget M";
+const char* password    = "18112547";
+
+// 2. ตั้งค่า MQTT Broker & Topic
+const char* mqtt_server = "10.242.107.116";
+const int   mqtt_port   = 1883;
+const char* topic_ver   = "esp32_arun/version";
+
+// 3. ตั้งค่าเวอร์ชันใหม่เป็น 1.0.1 และ GitHub Raw URL
+String currentVersion   = "1.0.1"; // << อัปเดตเป็น 1.0.1
+String versionURL       = "https://raw.githubusercontent.com/0447arun-commits/01/main/version.txt";
+String firmwareURL      = "https://raw.githubusercontent.com/0447arun-commits/01/main/firmware.bin";
+
+// 4. ตั้งเวลาเช็คอัปเดตจาก GitHub ทุกๆ 10 วินาที
+const unsigned long CHECK_INTERVAL = 10000;
+unsigned long lastCheckTime = 0;
+
+// 5. ตัวแปรตั้งค่าไฟกระพริบแบบ Non-blocking (ทุกๆ 500 ms)
+unsigned long lastBlinkTime = 0;
+const unsigned long BLINK_INTERVAL = 500; 
+bool ledState = false;
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+
+// ฟังก์ชันส่งเลขเวอร์ชันไปแสดงบน MQTT Dashboard
+void publishVersion() {
+  if (mqttClient.connected()) {
+    mqttClient.publish(topic_ver, currentVersion.c_str(), true);
+    Serial.println("[MQTT] Published version to Dashboard: " + currentVersion);
+  }
+}
+
+// ฟังก์ชันเชื่อมต่อ MQTT
+void reconnectMQTT() {
+  static unsigned long lastMqttRetry = 0;
+  if (!mqttClient.connected() && millis() - lastMqttRetry > 5000) {
+    lastMqttRetry = millis();
+    Serial.print("[MQTT] Connecting to broker...");
+    String clientId = "ESP32Client-" + String(random(0xffff), HEX);
+    
+    if (mqttClient.connect(clientId.c_str())) {
+      Serial.println(" connected!");
+      publishVersion();
+    } else {
+      Serial.print(" failed, rc=");
+      Serial.println(mqttClient.state());
+    }
+  }
+}
+
+void checkForUpdates() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi Disconnected! Skipping update check...");
+    digitalWrite(2, LOW);
+    return;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
+  Serial.println("Checking for updates from GitHub...");
+  http.begin(client, versionURL);
+  int httpCode = http.GET();
+
+  if (httpCode == HTTP_CODE_OK) {
+    String latestVersion = http.getString();
+    latestVersion.trim();
+    Serial.println("Current Version: " + currentVersion);
+    Serial.println("Latest Version : " + latestVersion);
+
+    if (latestVersion != currentVersion && latestVersion.length() > 0) {
+      Serial.println("New version found! Downloading from GitHub...");
+
+      t_httpUpdate_return ret = httpUpdate.update(client, firmwareURL);
+
+      switch (ret) {
+        case HTTP_UPDATE_FAILED:
+          Serial.printf("Error (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+          break;
+        case HTTP_UPDATE_NO_UPDATES:
+          Serial.println("No Updates.");
+          break;
+        case HTTP_UPDATE_OK:
+          Serial.println("Update OK - Restarting...");
+          break;
+      }
+    } else {
+      Serial.println("Already on the latest version.");
+    }
+  } else {
+    Serial.println("Failed to check version. HTTP Code: " + String(httpCode));
+  }
+  http.end();
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(2, OUTPUT);
+  digitalWrite(2, LOW);
+
+  // เชื่อมต่อ WiFi
+  Serial.print("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected! IP: " + WiFi.localIP().toString());
+
+  // ตั้งค่า MQTT
+  mqttClient.setServer(mqtt_server, mqtt_port);
+
+  // เช็คเวอร์ชันจาก GitHub ทันที 1 ครั้งเมื่อเปิดเครื่อง
+  checkForUpdates();
+}
+
+void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    // --- โค้ดไฟกระพริบแบบ Non-blocking (สลับติด-ดับทุกๆ 500ms) ---
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastBlinkTime >= BLINK_INTERVAL) {
+      lastBlinkTime = currentMillis;
+      ledState = !ledState;
+      digitalWrite(2, ledState ? HIGH : LOW);
+    }
+
+    // จัดการการเชื่อมต่อ MQTT
+    if (!mqttClient.connected()) {
+      reconnectMQTT();
+    } else {
+      mqttClient.loop();
+    }
+  } else {
+    digitalWrite(2, LOW);
+  }
+
+  // ตรวจสอบ OTA จาก GitHub ตามช่วงเวลาทุกๆ 10 วินาที
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastCheckTime >= CHECK_INTERVAL) {
+    lastCheckTime = currentMillis;
+    checkForUpdates();
+  }
+}
