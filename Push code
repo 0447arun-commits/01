@@ -114,7 +114,7 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  // 💡 กำหนดโหมด Wi-Fi Station ชัดเจน
+  // กำหนดโหมด Wi-Fi Station ชัดเจน
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
@@ -132,7 +132,7 @@ void setup() {
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setCallback(mqttCallback);
   
-  // 💡 เพิ่มขนาด Buffer ให้กับ MQTT ป้องกันแพ็กเกจส่งไม่ผ่าน
+  // เพิ่มขนาด Buffer ให้กับ MQTT ป้องกันแพ็กเกจส่งไม่ผ่าน
   mqttClient.setBufferSize(512);
 }
 
