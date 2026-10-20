@@ -14,7 +14,7 @@ const int   mqtt_port   = 1883;
 const char* topic_ver   = "esp32_arun/version";
 
 // 3. ตั้งค่าเวอร์ชันใหม่เป็น 1.0.1 และ GitHub Raw URL
-String currentVersion   = "1.0.1"; // << อัปเดตเป็น 1.0.1
+String currentVersion   = "1.0.1"; // << เปลี่ยนเป็น 1.0.1
 String versionURL       = "https://raw.githubusercontent.com/0447arun-commits/01/main/version.txt";
 String firmwareURL      = "https://raw.githubusercontent.com/0447arun-commits/01/main/firmware.bin";
 
