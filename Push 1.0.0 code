@@ -83,7 +83,7 @@ void reconnectMQTT() {
 
     Serial.print("[MQTT] Connecting to " + String(mqtt_server) + "...");
     
-    // 💡 แก้ไข: ใช้ MAC Address ทำเป็น Client ID ป้องกัน ID ซ้ำกับ Session เก่าใน Docker
+    // แก้ไข: ใช้ MAC Address ทำเป็น Client ID ป้องกัน ID ซ้ำกับ Session เก่าใน Docker
     String clientId = "ESP32_Arun_" + WiFi.macAddress();
     
     if (mqttClient.connect(clientId.c_str())) {
